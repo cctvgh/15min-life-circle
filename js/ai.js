@@ -157,4 +157,36 @@ const AIDecision = {
     // 规则引擎兜底
     return this.summarize(ctx.suggestions);
   },
+
+  /**
+   * 让 LLM 参与核心分析：基于完整体检数据生成"综合诊断 + 分区改进方案"
+   * @param {Object} ctx - { name, coord, area, poiByCategory, score, gaps, aiSuggestions }
+   * @returns {Promise<String>}
+   */
+  async generateComprehensive(ctx) {
+    if (this._llmEnabled()) {
+      const sys = '你是资深社区生活圈规划顾问，请基于给定体检数据输出结构化、可执行的综合诊断与分区改进方案，语气专业简洁。';
+      const text = await this._llmGenerate(this._buildComprehensivePrompt(ctx), sys);
+      if (text) return text;
+    }
+    return this.summarize(ctx.aiSuggestions || []);
+  },
+
+  _buildComprehensivePrompt(ctx) {
+    const poiText = Object.entries(ctx.poiByCategory || {})
+      .map(([k, arr]) => `${k}${(arr || []).length}`).join('、') || '无';
+    const bd = (ctx.score && ctx.score.breakdown) || {};
+    const sug = (ctx.aiSuggestions || []).map(s => s.message).join('；') || '无';
+    const coord = ctx.coord ? ctx.coord.map(v => Number(v).toFixed(4)).join(', ') : '';
+    return `请对以下 15 分钟生活圈体检数据输出"综合诊断 + 分区改进方案"：
+社区：${ctx.name || ''}（坐标 ${coord}）
+15 分钟步行可达面积：${ctx.area ? ctx.area + ' km²' : '未知'}
+9 类设施数量：${poiText}
+综合评分：${ctx.score ? ctx.score.total : '?'}分，四维评分：配套完整度${bd.completeness ?? '?'}、就近便利度${bd.proximity ?? '?'}、等时圈覆盖${bd.coverage ?? '?'}、类别多样性${bd.diversity ?? '?'}
+服务盲区：${ctx.gaps ?? '?'} 处
+AI 寻优建议：${sug}
+请输出：
+1) 社区现状综合诊断（200 字内，点出核心短板与优势）；
+2) 分区改进方案（按设施缺口优先级逐条列出，每条含推荐落点与预期效果）。`;
+  },
 };
