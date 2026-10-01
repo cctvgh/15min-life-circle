@@ -5,6 +5,10 @@
 
 const Cache = {
 
+  _hits: 0,
+  _misses: 0,
+  _total: 0,
+
   /**
    * 生成缓存键（坐标网格对齐后）
    */
@@ -18,13 +22,13 @@ const Cache = {
    * 读取缓存
    */
   get(lng, lat, prefix) {
-    if (typeof window === 'undefined') return null;
+    if (typeof window === 'undefined' || !window.localStorage) return null;
     try {
       const key = this.generateKey(lng, lat, prefix);
       const raw = localStorage.getItem(key);
       if (!raw) return null;
       const entry = JSON.parse(raw);
-      if (entry.version !== CACHE_CONFIG.VERSION) {
+      if (!entry || entry.version !== CACHE_CONFIG.VERSION) {
         localStorage.removeItem(key);
         return null;
       }
@@ -32,6 +36,8 @@ const Cache = {
         localStorage.removeItem(key);
         return null;
       }
+      this._hits++;
+      this._total++;
       return entry.data;
     } catch (e) {
       return null;
@@ -42,7 +48,7 @@ const Cache = {
    * 写入缓存
    */
   set(lng, lat, prefix, data) {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !window.localStorage) return;
     try {
       const key = this.generateKey(lng, lat, prefix);
       const entry = {
@@ -51,10 +57,32 @@ const Cache = {
         data,
       };
       localStorage.setItem(key, JSON.stringify(entry));
+      this._misses++;
+      this._total++;
     } catch (e) {
-      // localStorage可能已满，静默降级
+      // localStorage可能已满或超出配额，静默降级
       console.warn('缓存写入失败（可能已满）');
     }
+  },
+
+  /**
+   * 获取缓存统计信息
+   */
+  getStats() {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return { count: 0, sizeBytes: 0, hitRate: 0 };
+    }
+    let count = 0, sizeBytes = 0;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(CACHE_CONFIG.VERSION + '_')) {
+          count++;
+          sizeBytes += (localStorage.getItem(key) || '').length;
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return { count, sizeBytes, hitRate: this._hits / Math.max(this._total, 1) };
   },
 
   /**
