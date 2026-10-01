@@ -147,6 +147,24 @@ const App = {
       Planning.renderPanel(suggestions);
       this._showProgress(100, '体检完成！');
 
+      // Step 8: AI 增强建议（LLM 生成；未配置 Key/调用失败自动降级为规则引擎，不影响功能）
+      AIDecision.generateAdvice({ isochroneData: this.isochroneData, poiByCategory: this.poiData.byCategory, suggestions })
+        .then(advice => {
+          if (!advice) return;
+          const panel = document.getElementById('planning-content');
+          if (panel) {
+            const div = document.createElement('div');
+            div.style.cssText = 'margin-top:12px;padding:12px 14px;border:1px dashed #3b82f6;border-radius:8px;background:rgba(59,130,246,0.08);font-size:13px;line-height:1.7;color:#dbeafe;';
+            const tag = document.createElement('div');
+            tag.style.cssText = 'font-weight:700;color:#60a5fa;margin-bottom:6px;';
+            tag.textContent = 'AI 增强建议';
+            div.appendChild(tag);
+            div.appendChild(document.createTextNode(advice));
+            panel.appendChild(div);
+          }
+        })
+        .catch(() => {});
+
       // 隐藏进度条（延迟）
       setTimeout(() => this._hideProgress(), 1500);
 
