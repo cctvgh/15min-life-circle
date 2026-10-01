@@ -165,11 +165,145 @@ const AIDecision = {
    */
   async generateComprehensive(ctx) {
     if (this._llmEnabled()) {
-      const sys = '你是资深社区生活圈规划顾问，请基于给定体检数据输出结构化、可执行的综合诊断与分区改进方案，语气专业简洁。';
+      const sys = '你是资深社区生活圈规划顾问，请基于给定数据输出简洁、可执行的综合诊断与分区改进方案，语气专业简洁。';
       const text = await this._llmGenerate(this._buildComprehensivePrompt(ctx), sys);
       if (text) return text;
     }
     return this.summarize(ctx.aiSuggestions || []);
+  },
+
+  /**
+   * 多轮对话（工具调用闭环用）
+   */
+  async _llmChat(messages, system) {
+    const cfg = window.AI_CONFIG;
+    if (!this._llmEnabled()) return null;
+    try {
+      const msgs = system ? [{ role: 'system', content: system }, ...messages] : messages;
+      const res = await fetch(cfg.baseUrl || 'https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.apiKey },
+        body: JSON.stringify({ model: cfg.model || 'glm-4-flash', messages: msgs, temperature: 0.5, max_tokens: 900 }),
+      });
+      if (!res.ok) { console.warn('[AI] LLM返回', res.status); return null; }
+      const data = await res.json();
+      const text = data.choices && data.choices[0] && data.choices[0].message
+        ? data.choices[0].message.content : null;
+      return text ? String(text).trim() : null;
+    } catch (e) { console.warn('[AI] LLM调用失败', e.message); return null; }
+  },
+
+  /**
+   * LLM 承担核心分析（工具调用闭环）
+   * round1: LLM 从候选点选出需补设施 → 代码 simulate 验证评分增益
+   * round2: 把验证结果回填，LLM 权衡输出最终决策(优先级/方案/推荐)
+   * @param {Object} ctx - { name, isochroneData, poiByCategory, score, gaps, aiSuggestions }
+   * @returns {Promise<Object>} 决策对象
+   */
+  async analyzeWithTools(ctx) {
+    const sys = '你是社区生活圈规划决策专家。只能依据提供的已验证数据做决策，不得编造数值或坐标。';
+    const ctxText = this._buildToolContext(ctx);
+
+    // round1：让 LLM 从候选点提出改进候选
+    const round1 = await this._llmChat([
+      { role: 'user', content: '以下为社区体检数据。请从"AI候选点"中选出应新增的设施并给出理由，输出JSON：{"facilities":[{"key":"医院","index":0,"reason":"..."}]}，index为候选点序号，不要自行编造坐标。\n\n' + ctxText },
+    ], sys);
+
+    // 候选清单（LLM 失败则回退全部 AI 候选）
+    const cands = this._parseCandidates(round1, ctx);
+
+    // 工具验证：对每个候选用评分函数 simulate 计算真实增益
+    const verified = cands.map(c => {
+      const loc = c.location;
+      const sim = loc ? Planning.simulate(ctx.isochroneData || {}, ctx.poiByCategory || {}, c.key, loc) : null;
+      return {
+        ...c,
+        gain: sim ? sim.improvement.total : 0,
+        afterTotal: sim ? sim.after.total : (ctx.score ? ctx.score.total : 0),
+        beforeTotal: ctx.score ? ctx.score.total : 0,
+      };
+    }).sort((a, b) => b.gain - a.gain);
+
+    // round2：回填验证结果，让 LLM 权衡输出最终决策
+    const evidence = verified.map(v => `增${v.name}@(${v.location.lng.toFixed(4)},${v.location.lat.toFixed(4)})：评分增益+${v.gain}`).join('；') || '无已验证方案';
+    const round2 = await this._llmChat([
+      { role: 'user', content: ctxText },
+      { role: 'assistant', content: round1 || '[]' },
+      { role: 'user', content: '系统已对上述候选方案用真实评分逐项验证，结果如下：\n' + evidence + '\n请基于验证结果输出最终决策JSON：{"priority":[{"key":"医院","gain":11,"reason":"..."}],"recommendation":"..."}' },
+    ], sys);
+
+    return this._buildDecision(verified, round2, ctx);
+  },
+
+  _buildToolContext(ctx) {
+    const cats = (typeof POI_CATEGORIES !== 'undefined') ? POI_CATEGORIES : [];
+    const parts = cats.map(c => {
+      const n = (ctx.poiByCategory && ctx.poiByCategory[c.key]) ? ctx.poiByCategory[c.key].length : 0;
+      return `${c.name}${n}（阈值${c.min}，${n >= c.min ? '达标' : '不足'}）`;
+    }).join('、');
+    const cand = (ctx.aiSuggestions || []).map((s, i) => `#${i} 增${s.category ? s.category.name : '设施'}于(${s.location.lng.toFixed(4)},${s.location.lat.toFixed(4)}) 预期+${s.scoreImprovement}`).join('\n') || '无';
+    return `社区：${ctx.name || ''}\n设施：${parts || '无'}\n服务盲区：${ctx.gaps || 0} 处\nAI候选点：\n${cand}`;
+  },
+
+  // 解析 LLM 候选 → 回退为 AI 全部候选
+  _parseCandidates(text, ctx) {
+    const list = [];
+    const push = (key, index, reason, name) => {
+      const sug = (ctx.aiSuggestions || [])[index];
+      const k = this._mapKey(key);
+      if (sug && k) list.push({ key: k, name: name || key, index, reason: reason || '', location: sug.location });
+    };
+    if (text) {
+      try {
+        const obj = JSON.parse(this._extractJson(text));
+        if (obj && Array.isArray(obj.facilities)) {
+          obj.facilities.forEach(f => push(f.key || f.facility, Number(f.index) || 0, f.reason || '', f.name));
+        }
+      } catch (e) { /* 解析失败走回退 */ }
+    }
+    if (list.length === 0) {
+      (ctx.aiSuggestions || []).forEach((s, i) => {
+        const k = s.category ? s.category.key : '';
+        if (k) list.push({ key: k, name: s.category.name, index: i, reason: '', location: s.location });
+      });
+    }
+    return list;
+  },
+
+  _mapKey(name) {
+    const cats = (typeof POI_CATEGORIES !== 'undefined') ? POI_CATEGORIES : [];
+    const hit = cats.find(c => c.key === name || c.name === name || (c.keywords || []).indexOf(name) >= 0);
+    return hit ? hit.key : (typeof name === 'string' ? name : null);
+  },
+
+  _extractJson(text) {
+    const m = String(text).match(/\{[\s\S]*\}/);
+    return m ? m[0] : '{}';
+  },
+
+  _buildDecision(verified, round2, ctx) {
+    const priority = [];
+    if (round2) {
+      try {
+        const obj = JSON.parse(this._extractJson(round2));
+        if (obj && Array.isArray(obj.priority)) {
+          obj.priority.forEach(p => priority.push({
+            key: this._mapKey(p.key || p.facility),
+            name: p.facility || p.key || '',
+            score: (p.score != null ? p.score : p.gain) != null ? (p.score != null ? p.score : p.gain) : null, reason: p.reason || '',
+          }));
+        }
+      } catch (e) { /* 解析失败用 verified */ }
+    }
+    if (priority.length === 0) {
+      verified.slice(0, 5).forEach(v => priority.push({ key: v.key, name: v.name, score: v.gain, reason: v.reason || '' }));
+    }
+    return {
+      priority,
+      verified,
+      recommendation: round2 && (round2.match(/recommendation[":\s]+([^"]+)/) || [])[1] || '',
+      evidence: verified.map(v => `${v.name}@(${v.location.lng.toFixed(4)},${v.location.lat.toFixed(4)}) 增益+${v.gain}`).join('；'),
+    };
   },
 
   _buildComprehensivePrompt(ctx) {

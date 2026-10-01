@@ -173,6 +173,44 @@ const App = {
         })
         .catch(() => {});
 
+      // Step 9: AI 核心决策（LLM 候选 → 代码工具验证 → 回填权衡）
+      // 差异化创新：让大模型承担核心分析（提候选、权衡优先级），评分增益由确定性算法验证
+      AIDecision.analyzeWithTools({
+        name,
+        isochroneData: this.isochroneData,
+        poiByCategory: this.poiData.byCategory,
+        score: this.score,
+        gaps: (this.gaps || []).length,
+        aiSuggestions: suggestions,
+      })
+        .then(d => {
+          if (!d || !d.priority || d.priority.length === 0) return;
+          const panel = document.getElementById('planning-content');
+          if (!panel) return;
+          const div = document.createElement('div');
+          div.style.cssText = 'margin-top:12px;padding:12px 14px;border:1px solid #10b981;border-radius:8px;background:rgba(16,185,129,0.08);font-size:13px;line-height:1.7;color:#d1fae5;';
+          const tag = document.createElement('div');
+          tag.style.cssText = 'font-weight:700;color:#34d399;margin-bottom:6px;';
+          tag.textContent = 'AI 核心决策（LLM 候选 + 工具验证闭环）';
+          div.appendChild(tag);
+          const ul = document.createElement('ul');
+          ul.style.cssText = 'margin:6px 0 0 0;padding-left:18px;';
+          d.priority.forEach(p => {
+            const li = document.createElement('li');
+            li.textContent = `优先增设${p.name}（评分增益 +${p.score != null ? p.score : 0}）：${p.reason || ''}`;
+            ul.appendChild(li);
+          });
+          div.appendChild(ul);
+          if (d.recommendation) {
+            const rec = document.createElement('div');
+            rec.style.cssText = 'margin-top:8px;color:#a7f3d0;';
+            rec.textContent = '推荐：' + d.recommendation;
+            div.appendChild(rec);
+          }
+          panel.appendChild(div);
+        })
+        .catch(() => {});
+
       // 隐藏进度条（延迟）
       setTimeout(() => this._hideProgress(), 1500);
 
