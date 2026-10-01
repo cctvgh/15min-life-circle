@@ -220,6 +220,43 @@ console.log('\n测试6: 多边形面积计算');
   assert('1km²正方形面积约为1', Math.abs(area - 1.0) < 0.15);
 }
 
+// 测试7: AI 规划决策寻优
+console.log('\n测试7: AI 规划决策引擎·多目标寻优');
+{
+  // 加载 ai.js（AIDecision 依赖 Planning.simulate）
+  eval(fs.readFileSync(path.join(rootDir, 'js/ai.js'), 'utf8')
+    .replace(/^const AIDecision/m, 'global.AIDecision'));
+
+  // Mock Planning.simulate：越接近盲区参考点(110.2580,21.5880)评分增益越高
+  global.Planning = {
+    simulate(iso, poi, key, loc) {
+      const d = Math.abs(loc.lng - 110.2580) + Math.abs(loc.lat - 21.5880);
+      const gain = Math.max(0, Math.round(10 - d * 10000));
+      return {
+        before: { total: 1, breakdown: {} },
+        after: { total: 1 + gain, breakdown: {} },
+        improvement: { total: gain, breakdown: { proximity: gain, diversity: 0 } },
+      };
+    },
+  };
+
+  const gapCluster = [
+    { lng: 110.2580, lat: 21.5880 },
+    { lng: 110.2585, lat: 21.5880 },
+    { lng: 110.2580, lat: 21.5885 },
+    { lng: 110.2585, lat: 21.5885 },
+  ];
+  const opt = AIDecision.optimizePlacement(
+    gapCluster, { key: 'hospital', name: '医院' },
+    { center: { lng: 110.2589, lat: 21.5891 } }, {}
+  );
+  assert('寻优返回有效坐标', typeof opt.location.lng === 'number' && typeof opt.location.lat === 'number');
+  assert('寻优含评分增益', opt.improvement && opt.improvement.total >= 0);
+  assert('寻优采样数>0', opt.samples > 0);
+  assert('寻优生成自然语言说明', typeof opt.reason === 'string' && opt.reason.length > 10);
+  assert('寻优选择增益最高点(靠盲区参考点)', Math.abs(opt.location.lng - 110.2580) < 0.0006 && Math.abs(opt.location.lat - 21.5880) < 0.0006);
+}
+
 // ===== 结果 =====
 console.log('\n===== 测试结果 =====');
 console.log(`通过: ${passed} / ${passed + failed}`);

@@ -67,22 +67,20 @@ const Planning = {
 
     gaps.forEach((cluster, idx) => {
       if (cluster.length < 2) return;
-      // 计算盲区中心
-      const center = cluster.reduce((acc, p) => ({
-        lng: acc.lng + p.lng / cluster.length,
-        lat: acc.lat + p.lat / cluster.length,
-      }), { lng: 0, lat: 0 });
 
       if (lacking.length > 0) {
         const target = lacking[0].cat;
-        // 模拟在该位置新增设施
-        const sim = this.simulate(isochroneData, poiByCategory, target.key, center);
+        // AI 规划决策引擎：在盲区候选域内启发式寻优，选取评分增益最大的落点（而非简单取中心）
+        const opt = AIDecision.optimizePlacement(cluster, target, isochroneData, poiByCategory);
         suggestions.push({
           gapIndex: idx,
-          location: center,
+          location: opt.location,
           category: target,
-          scoreImprovement: sim.improvement.total,
-          message: `建议在盲区${idx + 1}中心位置（${center.lng.toFixed(4)}, ${center.lat.toFixed(4)}）增设<strong>${target.name}</strong>设施，预计可将社区评分从 ${sim.before.total} 提升至 ${sim.after.total}（+${sim.improvement.total}分）`,
+          scoreImprovement: opt.improvement.total,
+          beforeTotal: opt.before.total,
+          afterTotal: opt.after.total,
+          reason: opt.reason,
+          message: opt.reason,
         });
       }
     });
