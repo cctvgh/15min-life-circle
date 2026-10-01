@@ -11,7 +11,16 @@
     "type": "git",
     "url": "https://github.com/your-username/15min-life-circle"
   },
-  "keywords": ["baidu-map", "isochrone", "15-minute-city", "urban-planning"],
+  "keywords": [
+    "baidu-map",
+    "isochrone",
+    "15-minute-city",
+    "urban-planning"
+  ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "ffmpeg-static": "^5.3.0",
+    "playwright-core": "^1.63.0"
+  }
 }

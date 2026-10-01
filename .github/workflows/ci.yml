@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run smoke tests
+        run: node tests/smoke-test.js
+
+  # 说明：GitHub Pages 当前通过"main分支根目录"方式部署（Settings→Pages）
+  # 如需切换为 Actions 部署，可将 deploy job 取消注释并到仓库 Settings→Pages 选择 "GitHub Actions" 源
+  # deploy:
+  #   needs: test
+  #   if: github.ref == 'refs/heads/main'
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     contents: read
+  #     pages: write
+  #     id-token: write
+  #   environment:
+  #     name: github-pages
+  #     url: ${{ steps.deployment.outputs.page_url }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Setup Pages
+  #       uses: actions/configure-pages@v5
+  #     - name: Upload artifact
+  #       uses: actions/upload-pages-artifact@v3
+  #       with:
+  #         path: '.'
+  #     - name: Deploy to GitHub Pages
+  #       id: deployment
+  #       uses: actions/deploy-pages@v4

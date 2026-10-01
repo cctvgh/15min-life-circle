@@ -64,6 +64,9 @@ const App = {
     // 清除结果按钮
     document.getElementById('btn-clear').addEventListener('click', () => this.clearAll());
 
+    // 导出报告按钮
+    document.getElementById('btn-export').addEventListener('click', () => this.exportReport());
+
     // 样例社区快速选择
     const sampleSelect = document.getElementById('sample-select');
     SAMPLE_COMMUNITIES.forEach((s, i) => {
@@ -146,6 +149,10 @@ const App = {
 
       // 隐藏进度条（延迟）
       setTimeout(() => this._hideProgress(), 1500);
+
+      // 保存历史体检记录（多社区对比用）
+      this._saveHistory(address, center);
+      this._renderHistory();
 
     } catch (e) {
       console.error('分析失败:', e);
@@ -344,6 +351,149 @@ const App = {
       </div>
     `;
     reportEl.innerHTML = html;
+  },
+
+  // ============ 历史体检记录（多社区对比） ============
+  _saveHistory(address, center) {
+    try {
+      const KEY = 'lifecircle_history';
+      let history = [];
+      try { history = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { history = []; }
+      const now = new Date();
+      history.unshift({
+        address: address || `${center.lng.toFixed(4)}, ${center.lat.toFixed(4)}`,
+        time: `${now.getMonth()+1}/${now.getDate()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`,
+        score: this.score.total,
+        grade: this.score.grade,
+        area: this.isochroneData.area.toFixed(2),
+        poiCount: this.poiData.all.length,
+        gaps: (this.gaps || []).length,
+      });
+      // 去重（同地址只保留最新）
+      history = history.filter((h, i) => i === 0 || h.address !== history[0].address);
+      history = history.slice(0, 5);
+      localStorage.setItem(KEY, JSON.stringify(history));
+    } catch (e) { /* localStorage不可用时忽略 */ }
+  },
+
+  _renderHistory() {
+    const el = document.getElementById('history-content');
+    if (!el) return;
+    let history = [];
+    try { history = JSON.parse(localStorage.getItem('lifecircle_history') || '[]'); } catch (e) { history = []; }
+    if (history.length === 0) {
+      el.innerHTML = '<p class="text-muted">完成体检后自动记录，支持多社区对比</p>';
+      return;
+    }
+    const rows = history.map((h, i) => `
+      <tr>
+        <td title="${h.address}">${h.address.length > 10 ? h.address.slice(0,10) + '…' : h.address}</td>
+        <td>${h.score}</td>
+        <td>${h.area}</td>
+        <td>${h.poiCount}</td>
+        <td>${h.time}</td>
+      </tr>`).join('');
+    el.innerHTML = `
+      <div style="overflow-x:auto">
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <tr style="color:#94a3b8"><th style="text-align:left;padding:4px">社区</th><th>评分</th><th>面积km²</th><th>设施数</th><th>时间</th></tr>
+        ${rows}
+      </table>
+      </div>`;
+  },
+
+  // ============ 导出体检报告（HTML） ============
+  exportReport() {
+    if (!this.score || !this.poiData || !this.isochroneData) {
+      this._showError('请先完成一次体检再导出');
+      return;
+    }
+    const { total, grade, breakdown } = this.score;
+    const { area, center } = this.isochroneData;
+    const gaps = this.gaps || [];
+    const address = document.getElementById('address-input').value || `${center.lng.toFixed(4)}, ${center.lat.toFixed(4)}`;
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+
+    // 分类统计表
+    const catRows = POI_CATEGORIES.map(cat => {
+      const count = (this.poiData.byCategory[cat.key] || []).length;
+      const status = count >= cat.ideal ? '优秀' : count >= cat.min ? '达标' : count > 0 ? '不足' : '缺失';
+      const color = (status === '达标' || status === '优秀') ? '#22c55e' : status === '不足' ? '#f59e0b' : '#ef4444';
+      return `<tr><td>${cat.name}</td><td>${count}</td><td>${cat.min}</td><td>${cat.ideal}</td><td style="color:${color};font-weight:600">${status}</td></tr>`;
+    }).join('');
+
+    const dimsHtml = SCORE_CONFIG.dimensions.map(d =>
+      `<div class="dim"><div class="dim-name">${d.name}</div><div class="dim-bar"><div class="dim-fill" style="width:${breakdown[d.key]}%"></div></div><div class="dim-score">${breakdown[d.key]}</div></div>`
+    ).join('');
+
+    const goodCats = POI_CATEGORIES.filter(cat => (this.poiData.byCategory[cat.key] || []).length >= cat.ideal);
+    const badCats = POI_CATEGORIES.filter(cat => (this.poiData.byCategory[cat.key] || []).length < cat.min);
+
+    const reportHtml = `
+      <h3>概览</h3>
+      <p>体检地址：<strong>${address}</strong>（${center.lng.toFixed(4)}, ${center.lat.toFixed(4)}）</p>
+      <p>15分钟步行圈面积 <strong>${area.toFixed(2)} km²</strong>，圈内共检索到 <strong>${this.poiData.all.length}</strong> 处民生设施。</p>
+      <h3>优势设施</h3>
+      <ul>${goodCats.length ? goodCats.map(c => `<li>${c.name}（${(this.poiData.byCategory[c.key]||[]).length}处）</li>`).join('') : '<li>暂无</li>'}</ul>
+      <h3>不足设施</h3>
+      <ul>${badCats.length ? badCats.map(c => `<li><strong>${c.name}</strong>（${(this.poiData.byCategory[c.key]||[]).length}处，低于最低标准${c.min}）</li>`).join('') : '<li>各类设施均达最低标准</li>'}</ul>
+      <h3>服务盲区</h3>
+      <p>${gaps.length ? `识别到 <strong style="color:#ef4444">${gaps.length}</strong> 处连片服务盲区` : '<span style="color:#22c55e">未发现连片服务盲区</span>'}</p>
+    `;
+
+    const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>15分钟生活圈体检报告 - ${address}</title>
+<style>
+  body { font-family: 'Microsoft YaHei', sans-serif; max-width: 800px; margin: 0 auto; padding: 32px 24px; color: #1e293b; background: #f8fafc; }
+  h1 { color: #1a5fb4; border-bottom: 3px solid #1a5fb4; padding-bottom: 12px; }
+  h2 { color: #1a5fb4; margin-top: 28px; }
+  .score-box { display: flex; align-items: center; gap: 24px; background: #fff; border-radius: 12px; padding: 20px 24px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  .score-num { font-size: 56px; font-weight: 800; color: #1a5fb4; line-height: 1; }
+  .score-grade { font-size: 18px; color: #64748b; }
+  .dims { flex: 1; }
+  .dim { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+  .dim-name { width: 100px; font-size: 13px; color: #475569; }
+  .dim-bar { flex: 1; height: 10px; background: #e2e8f0; border-radius: 5px; overflow: hidden; }
+  .dim-fill { height: 100%; background: #4a90d9; border-radius: 5px; }
+  .dim-score { width: 30px; text-align: right; font-weight: 700; color: #1a5fb4; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
+  th { background: #1a5fb4; color: #fff; }
+  .card { background: #fff; border-radius: 12px; padding: 20px 24px; box-shadow: 0 1px 4px rgba(0,0,0,.1); margin-top: 16px; }
+  .footer { margin-top: 32px; color: #94a3b8; font-size: 12px; text-align: center; }
+  li { line-height: 1.8; }
+</style>
+</head>
+<body>
+<h1>15分钟生活圈体检报告</h1>
+<p style="color:#64748b">生成时间：${dateStr}</p>
+<div class="score-box">
+  <div class="score-num">${total}</div>
+  <div class="score-grade">${grade}</div>
+  <div class="dims">${dimsHtml}</div>
+</div>
+<h2>设施统计</h2>
+<table><tr><th>类别</th><th>数量</th><th>最低</th><th>理想</th><th>状态</th></tr>${catRows}</table>
+<h2>体检结论</h2>
+<div class="card">${reportHtml}</div>
+<div class="footer">15分钟生活圈 · 智能体检与规划助手 · 基于百度地图开放能力</div>
+</body>
+</html>`;
+
+    // 下载
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `15分钟生活圈体检报告_${address.replace(/[\/\\:*?"<>|]/g, '_')}_${dateStr}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+    this._showError('报告已导出');
   },
 
   // ============ 工具方法 ============

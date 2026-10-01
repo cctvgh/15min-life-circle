@@ -152,6 +152,7 @@ input[type="text"]:focus, select:focus { border-color: var(--primary-light); }
     <input type="text" id="address-input" placeholder="输入地址（如：湛江市廉江市罗州街道）" list="city-list">
     <input type="text" id="coord-display" placeholder="或点击地图选点" readonly>
     <button class="btn btn-primary" id="btn-analyze">开始体检</button>
+    <button class="btn btn-secondary" id="btn-export" title="导出体检报告为HTML">导出报告</button>
     <button class="btn btn-secondary" id="btn-clear">清除</button>
   </div>
 </div>
@@ -234,6 +235,14 @@ input[type="text"]:focus, select:focus { border-color: var(--primary-light); }
       <h2>规划模拟建议</h2>
       <div id="planning-content">
         <p class="text-muted">体检完成后自动生成选址建议</p>
+      </div>
+    </div>
+
+    <!-- 历史对比 -->
+    <div class="card">
+      <h2>社区对比</h2>
+      <div id="history-content">
+        <p class="text-muted">完成体检后自动记录，支持多社区对比</p>
       </div>
     </div>
 
