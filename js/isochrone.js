@@ -84,7 +84,7 @@ const Isochrone = {
 
     // 并发控制（借鉴life-circle-demo routeConcurrency=3）
     const concurrency = cfg.CONCURRENCY;
-    let queue = [...directions];
+    let cursor = 0;
 
     const processOne = async (dir) => {
       try {
@@ -106,8 +106,8 @@ const Isochrone = {
           return;
         }
 
-        // 弧长插值：在路径上找TIME_BUDGET×TIME_DISCOUNT对应的点
-        const targetDist = cfg.MAX_DISTANCE; // 1200m
+        // 弧长插值：实际可达距离 = MAX_DISTANCE / TIME_DISCOUNT（补偿等灯/过马路时间损耗）
+        const targetDist = cfg.MAX_DISTANCE / cfg.TIME_DISCOUNT; // 960m
         const edgePoint = this._pointAtArcLength(path, targetDist);
         if (edgePoint) {
           boundaryPoints.push({
@@ -133,8 +133,9 @@ const Isochrone = {
     };
 
     // 分批并发执行
-    while (queue.length > 0) {
-      const batch = queue.splice(0, concurrency);
+    while (cursor < directions.length) {
+      const batch = directions.slice(cursor, cursor + concurrency);
+      cursor += concurrency;
       await Promise.all(batch.map(dir => processOne(dir)));
     }
 
@@ -145,8 +146,26 @@ const Isochrone = {
   _walkingRoute(origin, destination) {
     return new Promise((resolve) => {
       const BMapGL = window.BMapGL;
+
+      // 缓存命中检查
+      const oLng = typeof origin.lng === 'number' ? origin.lng : origin.lng;
+      const oLat = typeof origin.lat === 'number' ? origin.lat : origin.lat;
+      const dLng = destination.lng;
+      const dLat = destination.lat;
+      const cachePrefix = 'walk_' + dLng.toFixed(6) + '_' + dLat.toFixed(6);
+      const cached = Cache.get(oLng, oLat, cachePrefix);
+      if (cached) { resolve(cached); return; }
+
       let resolved = false;
-      const safeResolve = (val) => { if (!resolved) { resolved = true; resolve(val); } };
+      let timerId = null;
+      const safeResolve = (val) => {
+        if (!resolved) {
+          resolved = true;
+          if (timerId) clearTimeout(timerId);
+          if (val) Cache.set(oLng, oLat, cachePrefix, val);
+          resolve(val);
+        }
+      };
       try {
         const walking = new BMapGL.WalkingRoute(origin, {
           onSearchComplete: (results) => {
@@ -156,10 +175,7 @@ const Isochrone = {
           },
         });
         walking.search(origin, destination);
-        // 超时保护（10秒）
-        setTimeout(() => {
-          if (!resolved) safeResolve(null);
-        }, 10000);
+        timerId = setTimeout(() => safeResolve(null), 10000);
       } catch (e) {
         safeResolve(null);
       }
@@ -195,6 +211,7 @@ const Isochrone = {
 
     for (let i = 1; i < path.length && layerIdx < targets.length; i++) {
       const segLen = this._haversine(path[i-1].lng, path[i-1].lat, path[i].lng, path[i].lat);
+      if (segLen < 0.01) continue; // 跳过零长度段（重合点）
       while (accumulated + segLen >= targets[layerIdx] && layerIdx < targets.length) {
         const ratio = (targets[layerIdx] - accumulated) / segLen;
         const min = ISOCHRONE_CONFIG.LAYERS[layerIdx];
@@ -306,7 +323,7 @@ const Isochrone = {
     // 并发验证可达性
     let completed = 0;
     const concurrency = cfg.CONCURRENCY;
-    let queue = [...selected];
+    let gridCursor = 0;
 
     const verifyOne = async (point) => {
       try {
@@ -321,7 +338,7 @@ const Isochrone = {
             pathDist += this._haversine(path[j-1].lng, path[j-1].lat, path[j].lng, path[j].lat);
           }
           // 步行时间内可达 → 加入边界点集
-          if (pathDist <= cfg.MAX_DISTANCE * 1.1) {
+          if (pathDist <= (cfg.MAX_DISTANCE / cfg.TIME_DISCOUNT) * 1.1) {
             gridPoints.push({
               lng: point.lng, lat: point.lat,
               layers: this._extractLayerPointsAlongPath(path, center),
@@ -335,8 +352,9 @@ const Isochrone = {
       }
     };
 
-    while (queue.length > 0) {
-      const batch = queue.splice(0, concurrency);
+    while (gridCursor < selected.length) {
+      const batch = selected.slice(gridCursor, gridCursor + concurrency);
+      gridCursor += concurrency;
       await Promise.all(batch.map(pt => verifyOne(pt)));
     }
 
@@ -353,8 +371,9 @@ const Isochrone = {
       area -= polygon[j].lng * polygon[i].lat;
     }
     area = Math.abs(area) / 2;
-    // 经纬度→km²（近似）
-    const latRad = polygon[0].lat * Math.PI / 180;
+    // 经纬度→km²（近似），使用质心纬度做投影修正
+    const centroidLat = polygon.reduce((sum, p) => sum + p.lat, 0) / polygon.length;
+    const latRad = centroidLat * Math.PI / 180;
     const kmPerLng = 111.32 * Math.cos(latRad);
     const kmPerLat = 110.574;
     return area * kmPerLng * kmPerLat;

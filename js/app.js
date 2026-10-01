@@ -166,14 +166,15 @@ const App = {
     return new Promise((resolve) => {
       const BMapGL = window.BMapGL;
       let resolved = false;
-      const safeResolve = (val) => { if (!resolved) { resolved = true; resolve(val); } };
+      let timerId = null;
+      const safeResolve = (val) => { if (!resolved) { resolved = true; if (timerId) clearTimeout(timerId); resolve(val); } };
       const geo = new BMapGL.Geocoder();
       geo.getPoint(address, (point) => {
         if (resolved) return;
         if (point) safeResolve({ lng: point.lng, lat: point.lat });
         else safeResolve(null);
       }, '全国');
-      setTimeout(() => safeResolve(null), 10000);
+      timerId = setTimeout(() => safeResolve(null), 10000);
     });
   },
 
@@ -385,14 +386,17 @@ const App = {
       el.innerHTML = '<p class="text-muted">完成体检后自动记录，支持多社区对比</p>';
       return;
     }
-    const rows = history.map((h, i) => `
+    const rows = history.map((h, i) => {
+      const addr = this._escapeHtml(h.address || '');
+      return `
       <tr>
-        <td title="${h.address}">${h.address.length > 10 ? h.address.slice(0,10) + '…' : h.address}</td>
+        <td title="${addr}">${addr.length > 10 ? addr.slice(0,10) + '…' : addr}</td>
         <td>${h.score}</td>
         <td>${h.area}</td>
         <td>${h.poiCount}</td>
         <td>${h.time}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
     el.innerHTML = `
       <div style="overflow-x:auto">
       <table style="width:100%;font-size:12px;border-collapse:collapse">
@@ -412,6 +416,7 @@ const App = {
     const { area, center } = this.isochroneData;
     const gaps = this.gaps || [];
     const address = document.getElementById('address-input').value || `${center.lng.toFixed(4)}, ${center.lat.toFixed(4)}`;
+    const safeAddress = this._escapeHtml(address);
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
 
@@ -432,7 +437,7 @@ const App = {
 
     const reportHtml = `
       <h3>概览</h3>
-      <p>体检地址：<strong>${address}</strong>（${center.lng.toFixed(4)}, ${center.lat.toFixed(4)}）</p>
+      <p>体检地址：<strong>${safeAddress}</strong>（${center.lng.toFixed(4)}, ${center.lat.toFixed(4)}）</p>
       <p>15分钟步行圈面积 <strong>${area.toFixed(2)} km²</strong>，圈内共检索到 <strong>${this.poiData.all.length}</strong> 处民生设施。</p>
       <h3>优势设施</h3>
       <ul>${goodCats.length ? goodCats.map(c => `<li>${c.name}（${(this.poiData.byCategory[c.key]||[]).length}处）</li>`).join('') : '<li>暂无</li>'}</ul>
@@ -446,7 +451,7 @@ const App = {
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>15分钟生活圈体检报告 - ${address}</title>
+<title>15分钟生活圈体检报告 - ${safeAddress}</title>
 <style>
   body { font-family: 'Microsoft YaHei', sans-serif; max-width: 800px; margin: 0 auto; padding: 32px 24px; color: #1e293b; background: #f8fafc; }
   h1 { color: #1a5fb4; border-bottom: 3px solid #1a5fb4; padding-bottom: 12px; }
@@ -497,6 +502,12 @@ const App = {
   },
 
   // ============ 工具方法 ============
+  _escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  },
+
   _clearOverlays() {
     this.overlays.forEach(o => this.map.removeOverlay(o));
     this.overlays = [];
