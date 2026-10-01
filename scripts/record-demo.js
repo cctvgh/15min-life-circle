@@ -32,13 +32,19 @@ const OUT_DIR = path.join(__dirname, '..', 'videos');
   // ===== 1. 打开页面 =====
   console.log('[2/4] 打开应用页面...');
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(15000); // 等待百度地图加载（headless较慢）
+  await page.waitForTimeout(25000); // 等待百度地图加载（headless较慢）
   try {
     await page.waitForFunction(() => window.App && window.App.map, { timeout: 60000 });
     console.log('   - 地图已加载');
   } catch (e) {
-    console.log('   - 地图加载超时（继续，尝试等待重试）');
-    await page.waitForTimeout(15000);
+    console.log('   - 地图加载超时（继续等待重试）');
+    await page.waitForTimeout(20000);
+    try {
+      await page.waitForFunction(() => window.App && window.App.map, { timeout: 30000 });
+      console.log('   - 二次等待后地图已加载');
+    } catch (e2) {
+      console.log('   - 地图仍未加载（继续流程）');
+    }
   }
 
   // 提示文案
@@ -63,9 +69,9 @@ const OUT_DIR = path.join(__dirname, '..', 'videos');
     await page.evaluate(() => App.runAnalysis());
   }
 
-  // ===== 3. 等待分析完成 =====
-  console.log('   等待分析完成（约2-4分钟）...');
-  const deadline = Date.now() + 6 * 60 * 1000;
+// ===== 3. 等待分析完成 =====
+  console.log('   等待分析完成（最长8分钟）...');
+  const deadline = Date.now() + 8 * 60 * 1000;
   while (Date.now() < deadline) {
     const state = await page.evaluate(() => {
       const bar = document.getElementById('progress-bar');
@@ -88,7 +94,37 @@ const OUT_DIR = path.join(__dirname, '..', 'videos');
     if (pctNum >= 100) { console.log('   - 分析完成!'); break; }
     await page.waitForTimeout(2000);
   }
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(5000);
+
+  // ===== 4. 展示结果 =====
+  console.log('[4/4] 展示结果...');
+  // 顶部（地图+评分环+雷达图）
+  await page.evaluate(() => {
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) sidebar.scrollTop = 0;
+  });
+  await page.waitForTimeout(12000);
+
+  // 中部（柱状图）
+  await page.evaluate(() => {
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) sidebar.scrollTop = 500;
+  });
+  await page.waitForTimeout(12000);
+
+  // 底部（报告+规划建议+社区对比）
+  await page.evaluate(() => {
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) sidebar.scrollTop = 1400;
+  });
+  await page.waitForTimeout(12000);
+
+  // 回到顶部结束
+  await page.evaluate(() => {
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) sidebar.scrollTop = 0;
+  });
+  await page.waitForTimeout(5000);
 
   // ===== 4. 展示结果 =====
   console.log('[4/4] 展示结果...');
