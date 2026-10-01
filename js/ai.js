@@ -96,10 +96,65 @@ const AIDecision = {
   },
 
   /**
-   * LLM 网关：可选外部大模型增强建议文案（预留）
-   * 未配置 window.AI_CONFIG 时自动走规则引擎，不影响功能。
+   * LLM 网关：可选外部大模型增强建议文案（智谱 GLM，OpenAI 兼容）
+   * 读 window.AI_CONFIG（config.local.js 配置）。未配置 / 调用失败时返回 null，
+   * 上层自动降级到内置规则引擎，不影响功能。
    */
   _llmEnabled() {
-    return !!(window.AI_CONFIG && window.AI_CONFIG.enabled && window.AI_CONFIG.apiKey);
+    const c = window.AI_CONFIG;
+    return !!(c && c.enabled && c.apiKey);
+  },
+
+  /**
+   * 调用智谱 GLM 生成自然语言规划建议
+   * @param {String} prompt - 结构化体检/规划数据提示词
+   * @param {String} [system] - 系统角色
+   * @returns {Promise<String|null>} 生成的文案；失败返回 null
+   */
+  async _llmGenerate(prompt, system) {
+    const cfg = window.AI_CONFIG;
+    if (!this._llmEnabled()) return null;
+    try {
+      const res = await fetch(cfg.baseUrl || 'https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.apiKey },
+        body: JSON.stringify({
+          model: cfg.model || 'glm-4-flash',
+          messages: [
+            { role: 'system', content: system || '你是社区生活圈规划顾问，请用简洁、专业、可执行的语气给出改进建议，不超过200字。' },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.6,
+          max_tokens: 500,
+        }),
+      });
+      if (!res.ok) { console.warn('[AI] LLM返回', res.status); return null; }
+      const data = await res.json();
+      const text = data.choices && data.choices[0] && data.choices[0].message
+        ? data.choices[0].message.content : null;
+      return text ? String(text).trim() : null;
+    } catch (e) {
+      console.warn('[AI] LLM调用失败，降级规则引擎:', e.message);
+      return null;
+    }
+  },
+
+  /**
+   * 基于体检/规划数据生成"AI 增强建议"（优先 LLM，失败走规则引擎）
+   * @param {Object} ctx - { isochroneData, poiByCategory, suggestions }
+   * @returns {Promise<String>} 建议文案
+   */
+  async generateAdvice(ctx) {
+    if (this._llmEnabled()) {
+      const prompt = JSON.stringify({
+        area: ctx.isochroneData && ctx.isochroneData.area,
+        poiCount: Object.values(ctx.poiByCategory || {}).reduce((s, a) => s + (a ? a.length : 0), 0),
+        suggestions: (ctx.suggestions || []).map(s => s.message),
+      });
+      const llmText = await this._llmGenerate(prompt);
+      if (llmText) return llmText;
+    }
+    // 规则引擎兜底
+    return this.summarize(ctx.suggestions);
   },
 };

@@ -19,6 +19,17 @@ if (typeof echarts === 'undefined') {
 
 <!-- 配置 -->
 <script src="js/config.js"></script>
+<script>
+  // 可选加载本地配置 config.local.js（不入库；本地存在时加载 AK/LLM 覆盖，线上不存在则静默跳过）
+  (function () {
+    try {
+      var s = document.createElement('script');
+      s.src = 'config.local.js';
+      s.onerror = function () { if (s.parentNode) s.parentNode.removeChild(s); };
+      document.head.appendChild(s);
+    } catch (e) {}
+  })();
+</script>
 
 <style>
 :root {
