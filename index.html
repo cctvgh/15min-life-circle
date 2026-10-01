@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="15分钟生活圈智能体检与规划助手 - 基于百度地图开放能力">
+<title>15分钟生活圈 · 智能体检与规划助手</title>
+
+<!-- 百度地图 JS API GL v3.0（AK由config.js注入，部署时由CI替换） -->
+<script src="https://api.map.baidu.com/api?v=3.0&type=webgl&ak=XarFM2yyDSK4Jy99qNAqm8npv8waWAfm"></script>
+
+<!-- ECharts（CDN + 本地回退） -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<script>
+if (typeof echarts === 'undefined') {
+  document.write('<script src="lib/echarts.min.js"><\/script>');
+}
+</script>
+
+<!-- 配置 -->
+<script src="js/config.js"></script>
+
+<style>
+:root {
+  --bg: #0f172a; --card: #1e293b; --card-hover: #263548;
+  --text: #e2e8f0; --text-muted: #94a3b8;
+  --border: #334155; --primary: #1a5fb4; --primary-light: #4a90d9;
+  --green: #22c55e; --amber: #f59e0b; --red: #ef4444;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  background: var(--bg); color: var(--text);
+  height: 100vh; overflow: hidden; font-size: 14px;
+}
+
+/* ===== 顶栏 ===== */
+.topbar {
+  height: 56px; display: flex; align-items: center; gap: 12px;
+  padding: 0 16px; background: var(--card);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  position: relative; z-index: 10;
+}
+.app-title { font-size: 15px; font-weight: 700; color: var(--primary-light); white-space: nowrap; }
+.app-title span { color: var(--text-muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
+
+.input-group { display: flex; align-items: center; gap: 8px; flex: 1; max-width: 600px; }
+input[type="text"], select {
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 12px; font-size: 13px; outline: none;
+  transition: border-color 0.2s;
+}
+input[type="text"]:focus, select:focus { border-color: var(--primary-light); }
+#address-input { flex: 1; min-width: 200px; }
+#coord-display { width: 180px; font-family: monospace; font-size: 12px; color: var(--text-muted); }
+
+.btn {
+  padding: 8px 18px; border: none; border-radius: 6px;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: all 0.2s; white-space: nowrap;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-light); }
+.btn-secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--card-hover); }
+
+/* ===== 进度条 ===== */
+.progress-wrap {
+  height: 3px; background: var(--border);
+  display: none; position: absolute; top: 56px; left: 0; right: 0; z-index: 9;
+}
+#progress-bar { height: 100%; background: var(--primary-light); transition: width 0.3s; }
+#progress-text {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  font-size: 12px; color: var(--text-muted); background: var(--card);
+  padding: 4px 14px; border-radius: 12px; border: 1px solid var(--border);
+  display: none; white-space: nowrap;
+}
+
+/* ===== 主区域 ===== */
+.main { display: flex; height: calc(100vh - 56px); }
+
+.map-container { flex: 1; position: relative; min-width: 400px; }
+#map-container { width: 100%; height: 100%; }
+
+.map-hint {
+  position: absolute; bottom: 16px; left: 16px; z-index: 5;
+  background: rgba(15,23,42,0.85); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--text-muted);
+  backdrop-filter: blur(4px);
+}
+
+/* ===== 侧栏 ===== */
+.sidebar {
+  width: 380px; background: var(--bg); border-left: 1px solid var(--border);
+  overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px;
+}
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px;
+}
+.card h2 {
+  font-size: 14px; color: var(--primary-light); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 6px;
+}
+.card h2::before { content: ''; width: 4px; height: 16px; background: var(--primary-light); border-radius: 2px; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.stat-item { text-align: center; padding: 10px 6px; background: var(--bg); border-radius: 8px; }
+.stat-value { font-size: 20px; font-weight: 700; color: var(--primary-light); }
+.stat-label { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+.chart-container { width: 100%; height: 220px; margin-top: 8px; }
+.score-ring-container { display: flex; justify-content: center; margin: 8px 0; }
+
+.report-section { margin-bottom: 16px; }
+.report-section h3 { font-size: 13px; color: var(--primary-light); margin-bottom: 6px; }
+.report-section p, .report-section li { font-size: 13px; line-height: 1.6; color: var(--text); }
+.report-section ul { padding-left: 20px; }
+.report-section li { margin: 3px 0; }
+
+.error-message {
+  display: none; position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+  background: rgba(239,68,68,0.95); color: #fff; padding: 10px 20px;
+  border-radius: 8px; font-size: 13px; z-index: 100;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.text-muted { color: var(--text-muted); }
+
+/* ===== 响应式 ===== */
+@media (max-width: 900px) {
+  .main { flex-direction: column; }
+  .map-container { height: 50vh; min-height: 300px; }
+  .sidebar { width: 100%; height: 50vh; border-left: none; border-top: 1px solid var(--border); }
+  .input-group { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+
+<!-- 顶栏 -->
+<div class="topbar">
+  <div class="app-title">15分钟生活圈<span>智能体检与规划助手</span></div>
+  <div class="input-group">
+    <select id="sample-select"><option value="">快速选择社区</option></select>
+    <input type="text" id="address-input" placeholder="输入地址（如：湛江市廉江市罗州街道）" list="city-list">
+    <input type="text" id="coord-display" placeholder="或点击地图选点" readonly>
+    <button class="btn btn-primary" id="btn-analyze">开始体检</button>
+    <button class="btn btn-secondary" id="btn-clear">清除</button>
+  </div>
+</div>
+
+<datalist id="city-list">
+  <option value="湛江市廉江市罗州街道">
+  <option value="湛江市廉江市城北街道">
+  <option value="湛江市廉江市吉水镇">
+  <option value="湛江市赤坎区">
+  <option value="北京市朝阳区望京SOHO">
+  <option value="上海市浦东新区">
+</datalist>
+
+<!-- 进度条 -->
+<div class="progress-wrap">
+  <div id="progress-bar" style="width:0%"></div>
+</div>
+<div id="progress-text"></div>
+
+<!-- 错误提示 -->
+<div class="error-message" id="error-message"></div>
+
+<!-- 主区域 -->
+<div class="main">
+  <!-- 地图 -->
+  <div class="map-container">
+    <div id="map-container"></div>
+    <div class="map-hint">
+      点击地图选择中心点，输入地址或选择社区后点击"开始体检"
+    </div>
+  </div>
+
+  <!-- 侧栏 -->
+  <div class="sidebar">
+
+    <!-- 等时圈信息 -->
+    <div class="card">
+      <h2>等时圈信息</h2>
+      <div class="stat-grid">
+        <div class="stat-item">
+          <div class="stat-value" id="iso-area">-</div>
+          <div class="stat-label">可达面积 km²</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="iso-points">-</div>
+          <div class="stat-label">边界采样点</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="gap-count">-</div>
+          <div class="stat-label">服务盲区</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 综合评分 -->
+    <div class="card">
+      <h2>综合评分</h2>
+      <div id="score-ring-container" class="score-ring-container">
+        <p class="text-muted" style="text-align:center">输入地址开始体检</p>
+      </div>
+      <div class="chart-container" id="radar-chart"></div>
+    </div>
+
+    <!-- 设施统计 -->
+    <div class="card">
+      <h2>设施统计 <span class="text-muted" id="poi-total" style="float:right;font-size:13px">-</span></h2>
+      <div class="chart-container" id="bar-chart"></div>
+    </div>
+
+    <!-- 体检报告 -->
+    <div class="card">
+      <h2>体检报告</h2>
+      <div id="report-content">
+        <p class="text-muted">输入地址开始体检</p>
+      </div>
+    </div>
+
+    <!-- 规划模拟 -->
+    <div class="card">
+      <h2>规划模拟建议</h2>
+      <div id="planning-content">
+        <p class="text-muted">体检完成后自动生成选址建议</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- API兼容层 -->
+<script src="js/bmap-compat.js"></script>
+<!-- Alpha Shape凹包算法 -->
+<script src="js/alpha-shape.js"></script>
+<!-- 双层缓存 -->
+<script src="js/cache.js"></script>
+<!-- 等时圈算法 -->
+<script src="js/isochrone.js"></script>
+<!-- POI检索 -->
+<script src="js/poi.js"></script>
+<!-- 评分仪表盘 -->
+<script src="js/dashboard.js"></script>
+<!-- 规划模拟 -->
+<script src="js/planning.js"></script>
+<!-- 主流程 -->
+<script src="js/app.js"></script>
+
+</body>
+</html>
