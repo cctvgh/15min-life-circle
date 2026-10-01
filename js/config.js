@@ -3,7 +3,9 @@
  * 15分钟生活圈智能体检与规划助手
  */
 
-// 百度地图AK（本地开发用；部署到GitHub时改回占位符 __BMAP_AK__ 由CI注入）
+// 百度地图AK（本地开发用；部署到GitHub Pages时AK必然暴露在前端，必须到百度控制台配置Referer白名单）
+// 安全要求：登录 lbsyun.baidu.com → 应用管理 → 设置 → 白名单，加入你的部署域名（如 cctvgh.github.io）
+// 不要在生产环境使用具备"服务端配额"的AK于纯前端页面
 window.BMAP_AK = window.BMAP_AK_OVERRIDE || 'XarFM2yyDSK4Jy99qNAqm8npv8waWAfm';
 
 // ============ 等时圈参数 ============
@@ -26,8 +28,8 @@ const POI_CATEGORIES = [
   { key: 'market',   name: '菜市场', keywords: ['菜市场', '生鲜超市'],     min: 1, ideal: 3, weight: 0.12 },
   { key: 'supermarket', name: '商超', keywords: ['超市', '便利店'],         min: 2, ideal: 4, weight: 0.10 },
   { key: 'school',   name: '学校',   keywords: ['小学', '中学', '幼儿园'],  min: 1, ideal: 3, weight: 0.13 },
-  { key: 'transit',  name: '公交',   keywords: ['公交站', '地铁站'],       min: 1, ideal: 3, weight: 0.10 },
-  { key: 'elderly',  name: '养老',   keywords: ['养老院', '社区养老'],     min: 1, ideal: 2, weight: 0.08 },
+  { key: 'transit',  name: '公交',   keywords: ['公交站', '地铁站', '公交车站', '汽车站', '公交枢纽'], min: 1, ideal: 3, weight: 0.10 },
+  { key: 'elderly',  name: '养老',   keywords: ['养老院', '社区养老', '敬老院', '福利院', '颐养院'], min: 1, ideal: 2, weight: 0.08 },
   { key: 'culture',  name: '文体',   keywords: ['图书馆', '文化活动中心', '体育场馆'], min: 1, ideal: 2, weight: 0.07 },
   { key: 'green',    name: '绿地',   keywords: ['公园', '广场'],           min: 1, ideal: 2, weight: 0.05 },
 ];

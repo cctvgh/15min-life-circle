@@ -25,33 +25,45 @@ const POI = {
 
     POI_CATEGORIES.forEach(cat => { totalKeywords += cat.keywords.length; byCategory[cat.key] = []; });
 
+    // 收集所有检索任务（类别+关键词）
+    const tasks = [];
+    POI_CATEGORIES.forEach(cat => {
+      cat.keywords.forEach(kw => tasks.push({ cat, kw }));
+    });
+
+    // 小批量并发（每批2个）+ 批间250ms间隔，兼顾速度与QPS安全
+    const BATCH = 2;
     let completed = 0;
     let searchErrors = 0;
-    for (const cat of POI_CATEGORIES) {
-      for (const kw of cat.keywords) {
-        try {
-          const pois = await this._searchInPolygon(kw, bpolygon, center);
-          // 去重（同类别内按坐标去重）
-          pois.forEach(poi => {
-            const exists = byCategory[cat.key].some(p =>
-              Math.abs(p.lng - poi.lng) < 0.001 && Math.abs(p.lat - poi.lat) < 0.001
-            );
-            if (!exists) {
-              byCategory[cat.key].push({ ...poi, category: cat.key, categoryName: cat.name });
-              allPOIs.push({ ...poi, category: cat.key, categoryName: cat.name });
-            }
-          });
-        } catch (e) {
-          searchErrors++;
-          console.warn(`POI检索失败 ${cat.name}/${kw}:`, e.message);
-        }
+
+    const processOne = async (task) => {
+      const { cat, kw } = task;
+      try {
+        const pois = await this._searchInPolygon(kw, bpolygon, center);
+        // 去重（同类别内按坐标去重）
+        pois.forEach(poi => {
+          const exists = byCategory[cat.key].some(p =>
+            Math.abs(p.lng - poi.lng) < 0.001 && Math.abs(p.lat - poi.lat) < 0.001
+          );
+          if (!exists) {
+            byCategory[cat.key].push({ ...poi, category: cat.key, categoryName: cat.name });
+            allPOIs.push({ ...poi, category: cat.key, categoryName: cat.name });
+          }
+        });
+      } catch (e) {
+        searchErrors++;
+        console.warn(`POI检索失败 ${cat.name}/${kw}:`, e.message);
+      } finally {
         completed++;
         onProgress(completed, totalKeywords, `设施检索 ${completed}/${totalKeywords}`);
-        // 搜索间隔：避免百度LocalSearch QPS限流导致回调不触发
-        // 两次searchInBounds间隔至少400ms
-        if (completed < totalKeywords) {
-          await new Promise(r => setTimeout(r, 400));
-        }
+      }
+    };
+
+    for (let i = 0; i < tasks.length; i += BATCH) {
+      const batch = tasks.slice(i, i + BATCH);
+      await Promise.all(batch.map(t => processOne(t)));
+      if (i + BATCH < tasks.length) {
+        await new Promise(r => setTimeout(r, 250));
       }
     }
 
