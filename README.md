@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'f23b0c7c-3077-4952-a1f8-53be08e5f791'
-  PropagateID: 'f23b0c7c-3077-4952-a1f8-53be08e5f791'
-  ReservedCode1: 'fe36ccca-caec-4c64-8900-295b5b73025c'
-  ReservedCode2: 'fe36ccca-caec-4c64-8900-295b5b73025c'
+  ProduceID: '54993ed3-059d-4c32-84ad-6c2dd645e543'
+  PropagateID: '54993ed3-059d-4c32-84ad-6c2dd645e543'
+  ReservedCode1: '6d885647-f4e4-4da9-91dd-37cf4949d92b'
+  ReservedCode2: '6d885647-f4e4-4da9-91dd-37cf4949d92b'
 ---
 
 # 15分钟生活圈 · 智能体检与规划助手
@@ -78,8 +78,9 @@ docker run -e BMAP_AK=你的百度AK -p 8080:80 life-circle
 ```bash
 npm i -g vercel
 vercel --prod
-# 在Vercel环境变量中设置 BMAP_AK
 ```
+
+纯静态托管（`vercel.json` 已配置），部署完成后请到百度地图控制台为 AK 添加 Vercel 域名（`xxx.vercel.app`）的 Referer 白名单——AK 会随前端代码暴露，靠白名单约束来源。若需隐藏 AK，请改用服务端代理（详见 `DEPLOY.md`）。
 
 ## 离线冒烟测试
 
