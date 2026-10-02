@@ -116,6 +116,13 @@ const App = {
       this._renderIsochrone();
       this._showProgress(50, '等时圈构建完成');
 
+      // 等时圈质量校验：构建失败（网络波动）时不静默产出 0 数据
+      if (!this.isochroneData.area || !this.isochroneData.polygon || this.isochroneData.polygon.length < 3) {
+        this._showError('等时圈构建失败（网络波动，步行路线规划未返回有效数据），请稍后重试');
+        this._hideProgress();
+        return;
+      }
+
       // Step 3: POI检索
       this.poiData = await POI.searchAll(this.isochroneData.polygon, center, (cur, total, msg) => {
         this._showProgress(50 + (cur / Math.max(total, 1)) * 25, msg);
