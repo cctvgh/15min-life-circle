@@ -51,13 +51,28 @@ const BMapCompat = {
   // 提取步行时间（秒）
   extractWalkingDuration(result) {
     if (!result) return null;
+    // 变体1: getPlan(0).getRoute(0).getDistance()
     try {
       const plan = result.getPlan(0);
       if (plan) {
         const route = plan.getRoute(0);
         if (route && route.getDistance) {
-          const dist = route.getDistance(false); // 米
-          return dist / ISOCHRONE_CONFIG.WALK_SPEED * 60; // 转秒
+          const dist = route.getDistance(false);
+          return dist / ISOCHRONE_CONFIG.WALK_SPEED * 60;
+        }
+        // 变体3: getPlan(0).getDistance()
+        if (plan.getDistance) {
+          const dist = plan.getDistance(false);
+          return dist / ISOCHRONE_CONFIG.WALK_SPEED * 60;
+        }
+      }
+    } catch (e) { /* continue */ }
+    // 变体2: REST格式 result.routes[0].legs[0].distance
+    try {
+      if (result.routes && result.routes[0]) {
+        const leg = result.routes[0].legs?.[0];
+        if (leg && leg.distance) {
+          return leg.distance.value / ISOCHRONE_CONFIG.WALK_SPEED * 60;
         }
       }
     } catch (e) { /* continue */ }
@@ -89,16 +104,12 @@ const BMapCompat = {
         const pois = [];
         for (let i = 0; i < count; i++) {
           const poi = result.getPoi(i);
-          if (poi) pois.push(this._normalizePOI(poi));
+          if (poi) {
+            const normalized = this._normalizePOI(poi);
+            if (normalized) pois.push(normalized);
+          }
         }
         if (pois.length > 0) return pois;
-      }
-    } catch (e) { /* continue */ }
-
-    // 变体3: result.pois 数组（类REST格式）
-    try {
-      if (Array.isArray(result.pois) && result.pois.length > 0) {
-        return result.pois.map(p => this._normalizePOI(p));
       }
     } catch (e) { /* continue */ }
 
@@ -114,26 +125,41 @@ const BMapCompat = {
   // ============ 内部工具方法 ============
   _normalizePath(path) {
     return path.map(p => {
-      if (p.lng !== undefined && p.lat !== undefined) return { lng: p.lng, lat: p.lat };
-      if (p.lng !== undefined && p.lat !== undefined) return { lng: p.lng, lat: p.lat };
-      return { lng: p[0], lat: p[1] };
-    });
+      // 变体A: {lng, lat} 对象
+      if (p && typeof p.lng === 'number' && typeof p.lat === 'number') {
+        return { lng: p.lng, lat: p.lat };
+      }
+      // 变体B: [lng, lat] 数组
+      if (Array.isArray(p) && p.length >= 2) {
+        return { lng: Number(p[0]), lat: Number(p[1]) };
+      }
+      // 变体C: {x, y} 或 {longitude, latitude}
+      if (p && (p.x !== undefined || p.longitude !== undefined)) {
+        return { lng: Number(p.lng ?? p.x ?? p.longitude), lat: Number(p.lat ?? p.y ?? p.latitude) };
+      }
+      console.warn('[BMapCompat] 无法识别的路径点格式:', p);
+      return null;
+    }).filter(Boolean);
   },
 
   _normalizePOI(poi) {
     let lng = 0, lat = 0;
     if (poi.point) {
-      lng = poi.point.lng || poi.point.lng || 0;
-      lat = poi.point.lat || poi.point.lat || 0;
+      lng = Number(poi.point.lng ?? poi.point[0] ?? 0);
+      lat = Number(poi.point.lat ?? poi.point[1] ?? 0);
     } else if (poi.location) {
-      lng = poi.location.lng || 0;
-      lat = poi.location.lat || 0;
+      lng = Number(poi.location.lng ?? poi.location[0] ?? 0);
+      lat = Number(poi.location.lat ?? poi.location[1] ?? 0);
+    }
+    // 坐标合法性校验
+    if (!isFinite(lng) || !isFinite(lat) || lng === 0 || lat === 0) {
+      return null;
     }
     return {
-      title: poi.title || poi.name || '',
+      title: String(poi.title || poi.name || ''),
       lng, lat,
-      address: poi.address || '',
-      phone: poi.phoneNumber || poi.phone || '',
+      address: String(poi.address || ''),
+      phone: String(poi.phoneNumber || poi.phone || ''),
     };
   },
 

@@ -116,6 +116,13 @@ const App = {
       this._renderIsochrone();
       this._showProgress(50, '等时圈构建完成');
 
+      // 等时圈质量校验：构建失败（网络波动）时不静默产出 0 数据
+      if (!this.isochroneData.area || !this.isochroneData.polygon || this.isochroneData.polygon.length < 3) {
+        this._showError('等时圈构建失败（网络波动，步行路线规划未返回有效数据），请稍后重试');
+        this._hideProgress();
+        return;
+      }
+
       // Step 3: POI检索
       this.poiData = await POI.searchAll(this.isochroneData.polygon, center, (cur, total, msg) => {
         this._showProgress(50 + (cur / Math.max(total, 1)) * 25, msg);
@@ -147,6 +154,70 @@ const App = {
       Planning.renderPanel(suggestions);
       this._showProgress(100, '体检完成！');
 
+      // Step 8: AI 综合诊断与改进方案（LLM 核心分析；未配置 Key/失败自动降级规则引擎）
+      AIDecision.generateComprehensive({
+        name: address || '',
+        coord: center ? [center.lng, center.lat] : null,
+        area: this.isochroneData ? this.isochroneData.area : null,
+        poiByCategory: this.poiData.byCategory,
+        score: this.score,
+        gaps: (this.gaps || []).length,
+        aiSuggestions: suggestions,
+      })
+        .then(advice => {
+          if (!advice) return;
+          const panel = document.getElementById('planning-content');
+          if (panel) {
+            const div = document.createElement('div');
+            div.style.cssText = 'margin-top:12px;padding:12px 14px;border:1px dashed #3b82f6;border-radius:8px;background:rgba(59,130,246,0.08);font-size:13px;line-height:1.7;color:#dbeafe;white-space:pre-line;';
+            const tag = document.createElement('div');
+            tag.style.cssText = 'font-weight:700;color:#60a5fa;margin-bottom:6px;';
+            tag.textContent = 'AI 综合诊断与改进方案';
+            div.appendChild(tag);
+            div.appendChild(document.createTextNode(advice));
+            panel.appendChild(div);
+          }
+        })
+        .catch(() => {});
+
+      // Step 9: AI 核心决策（LLM 候选 → 代码工具验证 → 回填权衡）
+      // 差异化创新：让大模型承担核心分析（提候选、权衡优先级），评分增益由确定性算法验证
+      AIDecision.analyzeWithTools({
+        name,
+        isochroneData: this.isochroneData,
+        poiByCategory: this.poiData.byCategory,
+        score: this.score,
+        gaps: (this.gaps || []).length,
+        aiSuggestions: suggestions,
+      })
+        .then(d => {
+          if (!d || !d.priority || d.priority.length === 0) return;
+          const panel = document.getElementById('planning-content');
+          if (!panel) return;
+          const div = document.createElement('div');
+          div.style.cssText = 'margin-top:12px;padding:12px 14px;border:1px solid #10b981;border-radius:8px;background:rgba(16,185,129,0.08);font-size:13px;line-height:1.7;color:#d1fae5;';
+          const tag = document.createElement('div');
+          tag.style.cssText = 'font-weight:700;color:#34d399;margin-bottom:6px;';
+          tag.textContent = 'AI 核心决策（LLM 候选 + 工具验证闭环）';
+          div.appendChild(tag);
+          const ul = document.createElement('ul');
+          ul.style.cssText = 'margin:6px 0 0 0;padding-left:18px;';
+          d.priority.forEach(p => {
+            const li = document.createElement('li');
+            li.textContent = `优先增设${p.name}（评分增益 +${p.score != null ? p.score : 0}）：${p.reason || ''}`;
+            ul.appendChild(li);
+          });
+          div.appendChild(ul);
+          if (d.recommendation) {
+            const rec = document.createElement('div');
+            rec.style.cssText = 'margin-top:8px;color:#a7f3d0;';
+            rec.textContent = '推荐：' + d.recommendation;
+            div.appendChild(rec);
+          }
+          panel.appendChild(div);
+        })
+        .catch(() => {});
+
       // 隐藏进度条（延迟）
       setTimeout(() => this._hideProgress(), 1500);
 
@@ -166,14 +237,15 @@ const App = {
     return new Promise((resolve) => {
       const BMapGL = window.BMapGL;
       let resolved = false;
-      const safeResolve = (val) => { if (!resolved) { resolved = true; resolve(val); } };
+      let timerId = null;
+      const safeResolve = (val) => { if (!resolved) { resolved = true; if (timerId) clearTimeout(timerId); resolve(val); } };
       const geo = new BMapGL.Geocoder();
       geo.getPoint(address, (point) => {
         if (resolved) return;
         if (point) safeResolve({ lng: point.lng, lat: point.lat });
         else safeResolve(null);
       }, '全国');
-      setTimeout(() => safeResolve(null), 10000);
+      timerId = setTimeout(() => safeResolve(null), 10000);
     });
   },
 
@@ -385,14 +457,17 @@ const App = {
       el.innerHTML = '<p class="text-muted">完成体检后自动记录，支持多社区对比</p>';
       return;
     }
-    const rows = history.map((h, i) => `
+    const rows = history.map((h, i) => {
+      const addr = this._escapeHtml(h.address || '');
+      return `
       <tr>
-        <td title="${h.address}">${h.address.length > 10 ? h.address.slice(0,10) + '…' : h.address}</td>
+        <td title="${addr}">${addr.length > 10 ? addr.slice(0,10) + '…' : addr}</td>
         <td>${h.score}</td>
         <td>${h.area}</td>
         <td>${h.poiCount}</td>
         <td>${h.time}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
     el.innerHTML = `
       <div style="overflow-x:auto">
       <table style="width:100%;font-size:12px;border-collapse:collapse">
@@ -412,6 +487,7 @@ const App = {
     const { area, center } = this.isochroneData;
     const gaps = this.gaps || [];
     const address = document.getElementById('address-input').value || `${center.lng.toFixed(4)}, ${center.lat.toFixed(4)}`;
+    const safeAddress = this._escapeHtml(address);
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
 
@@ -432,7 +508,7 @@ const App = {
 
     const reportHtml = `
       <h3>概览</h3>
-      <p>体检地址：<strong>${address}</strong>（${center.lng.toFixed(4)}, ${center.lat.toFixed(4)}）</p>
+      <p>体检地址：<strong>${safeAddress}</strong>（${center.lng.toFixed(4)}, ${center.lat.toFixed(4)}）</p>
       <p>15分钟步行圈面积 <strong>${area.toFixed(2)} km²</strong>，圈内共检索到 <strong>${this.poiData.all.length}</strong> 处民生设施。</p>
       <h3>优势设施</h3>
       <ul>${goodCats.length ? goodCats.map(c => `<li>${c.name}（${(this.poiData.byCategory[c.key]||[]).length}处）</li>`).join('') : '<li>暂无</li>'}</ul>
@@ -446,7 +522,7 @@ const App = {
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>15分钟生活圈体检报告 - ${address}</title>
+<title>15分钟生活圈体检报告 - ${safeAddress}</title>
 <style>
   body { font-family: 'Microsoft YaHei', sans-serif; max-width: 800px; margin: 0 auto; padding: 32px 24px; color: #1e293b; background: #f8fafc; }
   h1 { color: #1a5fb4; border-bottom: 3px solid #1a5fb4; padding-bottom: 12px; }
@@ -497,6 +573,12 @@ const App = {
   },
 
   // ============ 工具方法 ============
+  _escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  },
+
   _clearOverlays() {
     this.overlays.forEach(o => this.map.removeOverlay(o));
     this.overlays = [];

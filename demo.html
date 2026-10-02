@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>15分钟生活圈 · 离线演示模式</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background: #f4f7fb; color: #1f2d3d; line-height: 1.7; padding: 28px 16px; }
+.wrap { max-width: 960px; margin: 0 auto; }
+.banner { background: linear-gradient(135deg,#1e3a5f,#3b82f6); color:#fff; border-radius: 14px; padding: 28px 32px; margin-bottom: 20px; }
+.banner h1 { font-size: 24px; margin-bottom: 6px; }
+.banner p { font-size: 14px; opacity: .85; }
+.card { background: #fff; border-radius: 12px; padding: 22px 26px; margin-bottom: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+h2 { font-size: 17px; margin-bottom: 12px; border-left: 4px solid #3b82f6; padding-left: 10px; color:#0f1e33; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap: 14px; }
+.community { background:#f8fafc; border:1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: .2s; }
+.community:hover { border-color:#3b82f6; box-shadow: 0 2px 8px rgba(59,130,246,.15); }
+.community .name { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+.community .type { font-size: 11px; color:#5b6b80; }
+.community .score { font-size: 22px; font-weight: 800; color:#1d4ed8; margin: 6px 0 2px; }
+.community .meta { font-size: 12px; color:#64748b; }
+.detail { display: none; margin-top: 12px; padding: 14px 16px; background:#f8fafc; border-radius: 8px; border:1px dashed #cbd5e1; }
+.detail.show { display: block; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+th,td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+th { background:#e8f0fe; }
+.tag { display:inline-block; padding:2px 8px; border-radius: 8px; font-size: 11px; font-weight:600; }
+.t-ok{background:#dcfce7;color:#15803d;} .t-warn{background:#fef3c7;color:#b45309;} .t-drop{background:#fee2e2;color:#b91c1c;}
+.note { background:#f0fdfa; border-left:4px solid #14b8a6; padding:12px 16px; border-radius:8px; margin:10px 0; font-size:13px; }
+.btn { display:inline-block; padding:8px 16px; border-radius:8px; background:#3b82f6; color:#fff; text-decoration:none; font-size:13px; font-weight:600; margin-top:8px; }
+.footer { text-align:center; color:#94a3b8; font-size:12px; margin-top:20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="banner">
+    <h1>15分钟生活圈 · 离线演示模式</h1>
+    <p>数据为 2026-10-01~02 真实路网实测预存，本页无外部依赖，断网可运行 · 点击社区查看体检详情</p>
+  </div>
+
+  <div class="card">
+    <h2>7 个社区体检总览（点击展开详情）</h2>
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <div class="card">
+    <h2>社区详情</h2>
+    <div id="detail-box">
+      <p style="color:#94a3b8;font-size:13px">点击上方社区卡片查看等时圈 / 设施 / 评分 / 改进建议详情。</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>演示要点（对评委）</h2>
+    <ul style="padding-left:20px;font-size:14px">
+      <li><strong>痛点引入</strong>：乡镇设施"0 检索结果 + 1 处盲区"的现状（吉水/青平/安铺/横山）</li>
+      <li><strong>核心能力</strong>：真实路网等时圈（城区 1.79km² vs 边缘 0.02km² 对比）</li>
+      <li><strong>AI 决策</strong>：LLM 核心决策闭环——罗州街道推荐增设医院（确定性验证增益 +11）</li>
+      <li><strong>规模化</strong>：7 组城区/边缘/乡镇样本，三档断层差异</li>
+    </ul>
+  </div>
+
+  <div class="footer">离线演示数据：data/multi_community.json（2026-10-02 快照）· 在线体检请访问 index.html</div>
+</div>
+
+<script>
+var DATA = [
+  { name:'廉江市政府', type:'城区', score:88, grade:'优秀', area:'1.79 km²', poi:85, gap:0,
+    detail:'8类设施齐全：商超31/药店20/学校14/医院4/菜市场5/文体4/绿地5/养老2。双跑结果完全一致。',
+    advice:'配套完善，维持现状；建议补充公交类设施与养老品质提升。' },
+  { name:'罗州街道', type:'城区', score:75, grade:'良好', area:'1.25 km²', poi:87, gap:0,
+    detail:'设施均衡（药店18/商超27/学校13/绿地16）。LLM 核心决策实测：优先增设医院，验证增益+11。',
+    advice:'补齐医疗/养老缺口，AI 核心决策推荐优先增设医院。' },
+  { name:'广府路', type:'城区边缘', score:31, grade:'较差', area:'0.02 km²', poi:10, gap:0,
+    detail:'等时圈仅 0.02km²（路网阻隔"近在咫尺却走不到"），设施 10 处。',
+    advice:'需打通断头路/增加步行连道，扩大真实可达范围。' },
+  { name:'横山镇', type:'乡镇', score:16, grade:'较差', area:'1.44 km²', poi:0, gap:1,
+    detail:'等时圈 1.44km²，设施检索为空，识别 1 处服务盲区。',
+    advice:'建议优先配置基础服务（医疗/商超），纳入乡镇生活圈建设。' },
+  { name:'安铺镇', type:'乡镇', score:15, grade:'较差', area:'1.41 km²', poi:0, gap:1,
+    detail:'等时圈 1.41km²，设施为空，1 处盲区。',
+    advice:'同横山：基础服务优先补短板。' },
+  { name:'青平镇', type:'乡镇', score:7, grade:'较差', area:'0.56 km²', poi:0, gap:1,
+    detail:'等时圈 0.56km²（路网稀疏），设施为空，1 处盲区。',
+    advice:'覆盖范围小+无设施，需同步改善路网与设施。' },
+  { name:'吉水镇', type:'乡镇', score:1, grade:'较差', area:'0.10 km²', poi:0, gap:1,
+    detail:'识别 1 处连片盲区（约0.60km²），AI 寻优建议增设医院（评分 1→11）。',
+    advice:'AI 规划决策引擎推荐在(110.2557,21.5878)增设医院。' }
+];
+var grid = document.getElementById('grid');
+var detailBox = document.getElementById('detail-box');
+DATA.forEach(function(d, i){
+  var el = document.createElement('div');
+  el.className = 'community';
+  el.innerHTML = '<div class="name">'+d.name+'</div><div class="type">'+d.type+'</div>'+
+    '<div class="score">'+d.score+' <span style="font-size:12px;color:#64748b">分/'+d.grade+'</span></div>'+
+    '<div class="meta">面积 '+d.area+' · 设施 '+d.poi+' · 盲区 '+d.gap+'</div>';
+  el.onclick = function(){ showDetail(i); };
+  grid.appendChild(el);
+});
+function showDetail(i){
+  var d = DATA[i];
+  detailBox.innerHTML = '<table><tbody>'+
+    '<tr><th style="width:90px">社区</th><td>'+d.name+'（'+d.type+'）</td></tr>'+
+    '<tr><th>综合评分</th><td>'+d.score+' 分 / '+d.grade+'（4维加权：配套/便利/覆盖/多样）</td></tr>'+
+    '<tr><th>等时圈</th><td>15分钟真实路网步行可达面积 '+d.area+'</td></tr>'+
+    '<tr><th>设施</th><td>'+d.poi+' 处，盲区 '+d.gap+' 处</td></tr>'+
+    '<tr><th>体检结论</th><td>'+d.detail+'</td></tr>'+
+    '<tr><th>改进建议</th><td>'+d.advice+'</td></tr>'+
+    '</tbody></table>';
+}
+</script>
+</body>
+</html>

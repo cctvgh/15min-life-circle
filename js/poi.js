@@ -76,7 +76,8 @@ const POI = {
     return new Promise((resolve) => {
       const BMapGL = window.BMapGL;
       let resolved = false;  // 防止超时与回调双重resolve
-      const safeResolve = (val) => { if (!resolved) { resolved = true; resolve(val); } };
+      let timerId = null;
+      const safeResolve = (val) => { if (!resolved) { resolved = true; if (timerId) clearTimeout(timerId); resolve(val); } };
 
       try {
         // searchInBounds需要Bounds对象（外接矩形），非Polygon
@@ -112,7 +113,7 @@ const POI = {
         local.searchInBounds(keyword, bounds);
 
         // 超时保护：12秒后若回调未触发则返回空数组
-        setTimeout(() => {
+        timerId = setTimeout(() => {
           if (!resolved) {
             console.warn(`[POI] "${keyword}" 检索超时(12s)，返回空结果`);
             safeResolve([]);
@@ -224,7 +225,7 @@ const POI = {
       const bp = polygon[i * step];
       try {
         const directDist = Isochrone._haversine(center.lng, center.lat, bp.lng, bp.lat);
-        const path = await this._walkingRoute(
+        const path = await Isochrone._walkingRoute(
           new BMapGL.Point(center.lng, center.lat),
           new BMapGL.Point(bp.lng, bp.lat)
         );
@@ -240,26 +241,6 @@ const POI = {
 
     if (samples.length === 0) return 1.3; // 默认绕行系数
     return samples.reduce((a, b) => a + b) / samples.length;
-  },
-
-  _walkingRoute(origin, dest) {
-    return new Promise((resolve) => {
-      const BMapGL = window.BMapGL;
-      let resolved = false;
-      const safeResolve = (val) => { if (!resolved) { resolved = true; resolve(val); } };
-      try {
-        const walking = new BMapGL.WalkingRoute(origin, {
-          onSearchComplete: (results) => {
-            if (resolved) return;
-            safeResolve(BMapCompat.extractWalkingPath(results));
-          },
-        });
-        walking.search(origin, dest);
-        setTimeout(() => {
-          if (!resolved) safeResolve(null);
-        }, 10000);
-      } catch (e) { safeResolve(null); }
-    });
   },
 
   // 连通斑块聚合（简单网格邻接）
